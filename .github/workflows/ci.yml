@@ -136,6 +136,9 @@ jobs:
       - name: image
         # Tags are the release version only; there is deliberately no "latest".
         run: |
+          # Binary archives leave the built files in per-target dirs; stage the
+          # exact release binaries under the names the Dockerfile copies.
+          for a in amd64 arm64; do cp dist/dotvpn-core_linux_${a}*/dotvpn-core dist/dotvpn-core_linux_${a}; done
           docker buildx build -f deploy/docker/Dockerfile \
             --platform linux/amd64,linux/arm64 \
             --sbom=true --provenance=true \
