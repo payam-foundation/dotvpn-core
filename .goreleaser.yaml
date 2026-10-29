@@ -1,0 +1,53 @@
+version: 2
+
+project_name: dotvpn-core
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: dotvpn-core
+    main: ./cmd/dotvpn-core
+    binary: dotvpn-core
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+# Raw binaries named dotvpn-core_<os>_<arch>: install scripts and the Dockerfile
+# fetch exactly these and check them against checksums.txt.
+archives:
+  - formats: [binary]
+    name_template: "dotvpn-core_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# One SPDX SBOM per binary.
+sboms:
+  - artifacts: binary
+    documents: ["{{ .Binary }}_{{ .Os }}_{{ .Arch }}.spdx.json"]
+    cmd: syft
+    args: ["$artifact", "--output", "spdx-json=$document"]
+
+# Keyless signing through the workflow's OIDC identity: no key to store.
+# Verify: cosign verify-blob --bundle checksums.txt.sigstore.json \
+#   --certificate-identity-regexp 'https://github.com/payam-foundation/dotvpn-core/' \
+#   --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    args: ["sign-blob", "--yes", "--bundle=${signature}", "${artifact}"]
+    signature: "${artifact}.sigstore.json"
+
+changelog:
+  disable: true
+
+release:
+  draft: false

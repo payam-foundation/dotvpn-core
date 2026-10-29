@@ -1,0 +1,36 @@
+# Single-VPS deployment: control plane and node in one container.
+#
+#   docker compose run --rm dotvpn-core init -role allinone -config /data/config.yaml \
+#       -data-dir /data -domain vpn.example.com -email you@example.com
+#   docker compose up -d
+#   docker compose exec dotvpn-core dotvpn-core invite -config /data/config.yaml
+services:
+  dotvpn-core:
+    image: ghcr.io/payam-foundation/dotvpn-core:${DOTVPN_VERSION:?set DOTVPN_VERSION to a release tag}
+    command: ["allinone", "-config", "/data/config.yaml"]
+    restart: unless-stopped
+    ports:
+      - "443:443/tcp"
+      - "443:443/udp"
+    volumes:
+      - dotvpn:/data
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 1g
+    cpus: 2
+    ulimits:
+      nofile: 1048576
+    # Lets the non-root user bind 443 without any capability.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/dotvpn-core", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  dotvpn:
