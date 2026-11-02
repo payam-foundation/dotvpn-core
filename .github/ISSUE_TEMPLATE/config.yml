@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/payam-foundation/.github/security/policy
+    about: Report privately as described in SECURITY.md, not in a public issue.

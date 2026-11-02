@@ -132,7 +132,7 @@ go test -race -count=1 ./...
 go build -tags e2e ./cmd/dotvpn-core   # test-only build that allows loopback egress; never released
 ```
 
-`go.mod` carries a `replace` to `../dotvpn-wire` for side-by-side work with a sibling checkout. CI drops it and tests against the pinned wire tag and wire `main`. Cross-component behaviour is covered by [dotvpn-lab](https://github.com/payam-foundation/dotvpn-lab).
+`go.mod` pins an exact `dotvpn-wire` tag. For side-by-side work with a sibling checkout use an untracked `go.work` in the parent directory (see CONTRIBUTING.md). CI tests against the pinned wire tag and wire `main`. Cross-component behaviour is covered by [dotvpn-lab](https://github.com/payam-foundation/dotvpn-lab).
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
