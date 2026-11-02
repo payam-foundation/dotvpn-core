@@ -17,22 +17,27 @@ A client reaches the node directly, or through an in-country relay. The relay ne
 
 ```mermaid
 flowchart LR
-    client["Clients"]
-    relay["Relays (in-country)"]
+    client(["Clients"])
+    relay["Relay, in-country"]
 
-    subgraph core ["dotvpn-core"]
-        node["Node: h2, h3, cdnws, webtunnel, snowflake carriers and decoy site"]
-        guard["Egress guard: public addresses only"]
-        control["Control: accounts, tokens, server list, relay enrollment"]
+    subgraph core ["dotvpn-core host"]
+        control["Control plane<br/>accounts, tokens, server list, enrollment"]
+        node["Node<br/>h2, h3, cdnws, webtunnel, snowflake, decoy"]
+        guard["Egress guard<br/>public addresses only"]
     end
 
-    internet["Internet"]
+    internet(["Internet"])
 
     client -->|"direct carriers"| node
-    client -->|"knock and frames"| relay
-    node -->|"reverse tunnel, node dials out"| relay
-    node --> guard --> internet
+    client -->|"knock + frames"| relay
+    node -->|"dials out, parks tunnels"| relay
+    node --> guard -->|"allowed only"| internet
     control -.->|"signed tokens, server list"| node
+
+    classDef focal fill:#fdf0ea,stroke:#eb6c36,color:#2d3142
+    classDef ext fill:#f5f5f5,stroke:#7a8399,stroke-dasharray:4 3,color:#2d3142
+    class node focal
+    class client,internet ext
 ```
 
 The admin API and `/metrics` are served on a loopback address or a unix socket only. Any other bind address is refused at startup.
