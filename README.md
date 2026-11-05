@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme-header-dark.svg">
+  <img alt="Dot VPN" src=".github/readme-header-light.svg">
+</picture>
+
 # dotvpn-core
 
 [![CI](https://github.com/payam-foundation/dotvpn-core/actions/workflows/ci.yml/badge.svg)](https://github.com/payam-foundation/dotvpn-core/actions/workflows/ci.yml)
@@ -5,7 +10,7 @@
 [![Status: beta](https://img.shields.io/badge/status-beta-orange)](#status)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 
-The server side of [dotvpn](https://github.com/payam-foundation/dotvpn-wire#related-repositories), a censorship-resistant VPN. One binary, `dotvpn-core`, runs the **node** (edge proxy with a decoy site and an SSRF-guarded egress), the **control plane** (accounts, tokens, server list, relay enrollment) and the **reverse listener** that in-country relays connect to.
+The server side of [Dot VPN](https://github.com/payam-foundation/dotvpn-wire#related-repositories), a censorship-resistant VPN. One binary, `dotvpn-core`, runs the **node** (edge proxy with a decoy site and an SSRF-guarded egress), the **control plane** (accounts, tokens, server list, relay enrollment) and the **reverse listener** that in-country relays connect to.
 
 ## Status
 
