@@ -141,6 +141,13 @@ func (r *Router) newExit(name string, e Exit, o Options) (exit, error) {
 		u := newUpstream(e)
 		r.closers = append(r.closers, u)
 		return u, nil
+	case "warp":
+		w, err := newWarp(name, e, o.DataDir, r.cfg.IPFamily, o.Log)
+		if err != nil {
+			return nil, err
+		}
+		r.closers = append(r.closers, w)
+		return w, nil
 	}
 	return nil, fmt.Errorf("type %q not supported", e.Type)
 }
