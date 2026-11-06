@@ -5,7 +5,7 @@
 # Roles: allinone | node | control
 # Flags: --role R --domain D --email E --advertise H:P --listen A --decoy SPEC
 #        --control URL --join-token T --trusted-key K
-#        --cdnws-path P --webtunnel-path P --version vX.Y.Z --from-dir DIR
+#        --cdnws-path P --webtunnel-path P --egress-geo CC[,CC] --version vX.Y.Z --from-dir DIR
 #        --upgrade | --rollback | --uninstall | --no-start | --no-firewall
 set -euo pipefail
 
@@ -16,7 +16,7 @@ DATA_DIR=/var/lib/dotvpn
 USER_NAME=dotvpn
 
 ROLE=allinone DOMAIN="" EMAIL="" ADVERTISE="" LISTEN="" DECOY="" CONTROL="" JOIN="" TRUSTED=""
-CDNWS="" WEBTUNNEL="" VERSION="latest" FROM_DIR="" ACTION=install START=1 FIREWALL=1
+CDNWS="" WEBTUNNEL="" EGRESS_GEO="" VERSION="latest" FROM_DIR="" ACTION=install START=1 FIREWALL=1
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -34,6 +34,7 @@ while [ $# -gt 0 ]; do
     --trusted-key) TRUSTED=$2; shift 2 ;;
     --cdnws-path) CDNWS=$2; shift 2 ;;
     --webtunnel-path) WEBTUNNEL=$2; shift 2 ;;
+    --egress-geo) EGRESS_GEO=$2; shift 2 ;;
     --version) VERSION=$2; shift 2 ;;
     --from-dir) FROM_DIR=$2; shift 2 ;;
     --upgrade) ACTION=upgrade; shift ;;
@@ -41,7 +42,7 @@ while [ $# -gt 0 ]; do
     --uninstall) ACTION=uninstall; shift ;;
     --no-start) START=0; shift ;;
     --no-firewall) FIREWALL=0; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) die "unknown flag: $1" ;;
   esac
 done
@@ -159,6 +160,27 @@ open_ports() {
   fi
 }
 
+# fetch_geo downloads the IPv4 and IPv6 CIDR lists for each --egress-geo country
+# into $CONF_DIR/geo/<cc>.txt. Node egress refuses those ranges. Rerun with
+# --upgrade to refresh the lists; the node reads them at start.
+fetch_geo() {
+  [ -n "$EGRESS_GEO" ] || return 0
+  local cc lc tmp
+  install -d -o root -g "$USER_NAME" -m 0750 "$CONF_DIR/geo"
+  for cc in ${EGRESS_GEO//,/ }; do
+    [[ "$cc" =~ ^[A-Za-z]{2}$ ]] || die "invalid --egress-geo code: $cc"
+    lc=$(printf '%s' "$cc" | tr '[:upper:]' '[:lower:]')
+    tmp=$(mktemp)
+    fetch "https://www.ipdeny.com/ipblocks/data/aggregated/$lc-aggregated.zone" "$tmp" || die "could not fetch the $cc IPv4 list"
+    fetch "https://www.ipdeny.com/ipv6/ipaddresses/aggregated/$lc-aggregated.zone" "$tmp.6" || die "could not fetch the $cc IPv6 list"
+    cat "$tmp" "$tmp.6" >"$CONF_DIR/geo/$lc.txt"
+    rm -f "$tmp" "$tmp.6"
+    [ -s "$CONF_DIR/geo/$lc.txt" ] || die "empty $cc list"
+    chown root:"$USER_NAME" "$CONF_DIR/geo/$lc.txt"; chmod 0640 "$CONF_DIR/geo/$lc.txt"
+    log "egress blocks $cc: $(grep -c . "$CONF_DIR/geo/$lc.txt") ranges"
+  done
+}
+
 do_init() {
   [ -f "$CONF_DIR/config.yaml" ] && { log "keeping existing $CONF_DIR/config.yaml"; return; }
   local args=(init -role "$ROLE" -config "$CONF_DIR/config.yaml" -data-dir "$DATA_DIR")
@@ -172,6 +194,7 @@ do_init() {
   [ -n "$TRUSTED" ] && args+=(-trusted-key "$TRUSTED")
   [ -n "$CDNWS" ] && args+=(-cdnws-path "$CDNWS")
   [ -n "$WEBTUNNEL" ] && args+=(-webtunnel-path "$WEBTUNNEL")
+  [ -n "$EGRESS_GEO" ] && args+=(-egress-geo "$EGRESS_GEO")
   "$BIN" "${args[@]}"
   chown root:"$USER_NAME" "$CONF_DIR/config.yaml"
   chmod 0640 "$CONF_DIR/config.yaml"
@@ -195,6 +218,7 @@ case "$ACTION" in
     exit 0 ;;
   upgrade)
     install_binary
+    fetch_geo
     systemctl restart "$UNIT"
     log "upgraded to $("$BIN" version); previous binary kept as $BIN.prev"
     exit 0 ;;
@@ -202,6 +226,7 @@ esac
 
 install_binary
 ensure_user
+fetch_geo
 do_init
 case "$ROLE" in allinone|node) tune_kernel; open_ports ;; esac
 write_unit
