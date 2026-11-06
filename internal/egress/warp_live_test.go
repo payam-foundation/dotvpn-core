@@ -19,6 +19,7 @@ func TestWarpLive(t *testing.T) {
 	r, err := New(Config{
 		Exits: map[string]Exit{"warp": {Type: "warp"}},
 		Rules: []Rule{{Match: Match{Domains: []string{"www.cloudflare.com"}}, Exit: "warp"}},
+		Block: Block{CIDRs: []string{"1.0.0.0/24"}},
 		UDP:   "warp",
 	}, Options{DataDir: t.TempDir()})
 	if err != nil {
@@ -49,6 +50,21 @@ up:
 	t.Logf("%s", b)
 	if !strings.Contains(string(b), "warp=on") {
 		t.Fatalf("not through warp:\n%s", b)
+	}
+
+	// Same trace page through the default (direct) exit: not WARP.
+	dresp, err := cl.Get("https://cloudflare.com/cdn-cgi/trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ := io.ReadAll(dresp.Body)
+	dresp.Body.Close()
+	if !strings.Contains(string(db), "warp=off") {
+		t.Fatalf("direct exit went through warp:\n%s", db)
+	}
+	// A blocked range is refused before any exit is tried.
+	if _, err := r.Dial(context.Background(), "tcp", "1.0.0.1:443"); !isDeny(err) {
+		t.Fatalf("blocked CIDR: err = %v, want DenyError", err)
 	}
 
 	c, err := r.Dial(context.Background(), "udp", "1.1.1.1:53")
