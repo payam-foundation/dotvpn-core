@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/payam-foundation/dotvpn-core/internal/egress"
 	"github.com/payam-foundation/dotvpn-wire/atomicfile"
 	"github.com/payam-foundation/dotvpn-wire/loopback"
 )
@@ -66,6 +67,9 @@ type NodeConfig struct {
 	Join JoinConfig `yaml:"join"`
 	// Transports enabled on this node.
 	Transports NodeTransports `yaml:"transports"`
+	// Egress routes outbound connections: exits, blocklist, rules, IP family.
+	// Unset means every destination is dialled directly from the server.
+	Egress egress.Config `yaml:"egress,omitempty"`
 }
 
 // RelayRef is a relay the node dials out to and keeps a pool of tunnels to.
@@ -175,6 +179,9 @@ func (c *Config) Validate() error {
 	}
 	if err := loopback.Check(c.Control.AdminListen); err != nil {
 		return fmt.Errorf("control.admin_listen: %w", err)
+	}
+	if err := c.Node.Egress.Validate(); err != nil {
+		return fmt.Errorf("node.egress: %w", err)
 	}
 	return nil
 }

@@ -9,19 +9,17 @@ package node
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
-	"net/netip"
 	"os"
 	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"golang.org/x/time/rate"
 
+	"github.com/payam-foundation/dotvpn-core/internal/egress"
 	"github.com/payam-foundation/dotvpn-wire/auth"
 	"github.com/payam-foundation/dotvpn-wire/transport"
 )
@@ -36,6 +34,8 @@ type Policy struct {
 	MbpsPerUser     int
 	// AllowPrivate disables the private-address guard. Tests only.
 	AllowPrivate bool
+	// Egress picks the exit per destination. Nil dials everything directly.
+	Egress *egress.Router
 }
 
 // DefaultUDPPorts are DNS, QUIC/HTTP3 (443), NTP and STUN/TURN: what a
@@ -70,7 +70,7 @@ type userState struct {
 type Backend struct {
 	verifier atomic.Pointer[auth.Verifier]
 	policy   Policy
-	dialer   net.Dialer
+	egress   *egress.Router
 
 	mu     sync.Mutex
 	users  map[string]*userState
@@ -81,12 +81,15 @@ type Backend struct {
 func NewBackend(v *auth.Verifier, p Policy) *Backend {
 	b := &Backend{policy: p, users: map[string]*userState{}, denied: map[string]struct{}{}}
 	b.verifier.Store(v)
-	b.dialer = net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
-	if !p.AllowPrivate {
-		b.dialer.Control = guardControl
+	b.egress = p.Egress
+	if b.egress == nil {
+		b.egress = egress.Direct(p.AllowPrivate)
 	}
 	return b
 }
+
+// EgressStatus reports each egress exit for metrics.
+func (b *Backend) EgressStatus() []egress.ExitStatus { return b.egress.Status() }
 
 // SetVerifier swaps trusted keys (rotation) without restart.
 func (b *Backend) SetVerifier(v *auth.Verifier) { b.verifier.Store(v) }
@@ -181,11 +184,11 @@ func (b *Backend) Dial(ctx context.Context, u transport.User, authority string) 
 	} else if conc <= 0 {
 		st.active.Add(1)
 	}
-	c, err := b.dialer.DialContext(ctx, "tcp", authority)
+	c, err := b.egress.Dial(ctx, "tcp", authority)
 	if err != nil {
 		st.active.Add(-1)
-		var ge *guardError
-		if errors.As(err, &ge) {
+		var de *egress.DenyError
+		if errors.As(err, &de) {
 			return nil, transport.ErrForbidden
 		}
 		return nil, transport.ErrBadGateway
@@ -234,11 +237,11 @@ func (b *Backend) DialUDP(ctx context.Context, u transport.User, authority strin
 		st.active.Add(1)
 	}
 	release := func() { st.active.Add(-1); st.udp.Add(-1) }
-	c, err := b.dialer.DialContext(ctx, "udp", authority)
+	c, err := b.egress.Dial(ctx, "udp", authority)
 	if err != nil {
 		release()
-		var ge *guardError
-		if errors.As(err, &ge) {
+		var de *egress.DenyError
+		if errors.As(err, &de) {
 			return nil, transport.ErrForbidden
 		}
 		return nil, transport.ErrBadGateway
@@ -385,44 +388,4 @@ func (m *meteredConn) Close() error {
 		m.st.active.Add(-1)
 	})
 	return err
-}
-
-type guardError struct{ addr string }
-
-func (g *guardError) Error() string { return fmt.Sprintf("egress to %s denied", g.addr) }
-
-// guardControl runs after DNS resolution on the exact address being dialled,
-// so a hostname that resolves to (or rebinds to) a private address is refused.
-func guardControl(_, address string, _ syscall.RawConn) error {
-	ap, err := netip.ParseAddrPort(address)
-	if err != nil {
-		return &guardError{address}
-	}
-	if forbiddenAddr(ap.Addr()) {
-		return &guardError{address}
-	}
-	return nil
-}
-
-var extraBlocked = []netip.Prefix{
-	netip.MustParsePrefix("100.64.0.0/10"), // CGNAT
-	netip.MustParsePrefix("192.0.0.0/24"),  // IETF protocol assignments
-	netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
-	netip.MustParsePrefix("240.0.0.0/4"),   // reserved
-	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64
-	netip.MustParsePrefix("fec0::/10"),     // site-local
-}
-
-func forbiddenAddr(a netip.Addr) bool {
-	a = a.Unmap()
-	if !a.IsValid() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
-		a.IsMulticast() || a.IsUnspecified() || a.IsInterfaceLocalMulticast() {
-		return true
-	}
-	for _, p := range extraBlocked {
-		if p.Contains(a) {
-			return true
-		}
-	}
-	return false
 }
