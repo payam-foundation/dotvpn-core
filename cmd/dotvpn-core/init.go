@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ func cmdInit(_ context.Context, args []string) error {
 	wtPath := fs.String("webtunnel-path", "", "enable WebTunnel on this secret path")
 	sfListen := fs.String("snowflake-listen", "", "enable the embedded snowflake server on this TLS address (e.g. :8443)")
 	sfBroker := fs.String("snowflake-broker-path", "", "mount the snowflake broker on this URL path (default /sf with -snowflake-listen)")
+	egressGeo := fs.String("egress-geo", "", "comma-separated country codes to block at egress, e.g. IR; lists live in geo/<code>.txt next to the config")
 	dataDir := fs.String("data-dir", "", "state directory (default /var/lib/dotvpn as root, else the user config dir)")
 	force := fs.Bool("force", false, "overwrite an existing config")
 	if err := fs.Parse(args); err != nil {
@@ -70,6 +72,16 @@ func cmdInit(_ context.Context, args []string) error {
 	}
 	if n.Advertise == "" && *domain != "" {
 		n.Advertise = *domain + ":443"
+	}
+	for _, code := range strings.FieldsFunc(*egressGeo, func(r rune) bool { return r == ',' }) {
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+			return fmt.Errorf("-egress-geo %q: want two-letter country codes", code)
+		}
+		if n.Egress.Block.CIDRFiles == nil {
+			n.Egress.Block.CIDRFiles = map[string]string{}
+		}
+		n.Egress.Block.CIDRFiles[code] = filepath.Join(filepath.Dir(path), "geo", strings.ToLower(code)+".txt")
 	}
 	n.Name = hostname()
 	n.Hidden = *hidden

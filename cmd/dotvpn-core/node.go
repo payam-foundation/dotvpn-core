@@ -14,6 +14,7 @@ import (
 
 	"github.com/payam-foundation/dotvpn-core/internal/config"
 	"github.com/payam-foundation/dotvpn-core/internal/control"
+	"github.com/payam-foundation/dotvpn-core/internal/egress"
 	"github.com/payam-foundation/dotvpn-core/internal/node"
 	"github.com/payam-foundation/dotvpn-wire/auth"
 	"github.com/payam-foundation/dotvpn-wire/transport"
@@ -215,7 +216,13 @@ func runNode(ctx context.Context, c *config.Config, mounts map[string]http.Handl
 	if err != nil {
 		return err
 	}
+	eg, err := egress.New(c.Node.Egress, egress.Options{AllowPrivate: allowPrivateEgress, DataDir: c.DataDir})
+	if err != nil {
+		return err
+	}
+	defer eg.Close()
 	b := node.NewBackend(auth.NewVerifier(pubs...), node.Policy{
+		Egress:          eg,
 		AllowedPorts:    c.Node.AllowedPorts,
 		AllowedUDPPorts: c.Node.AllowedUDPPorts,
 		ConcPerUser:     c.Node.ConcPerUser,

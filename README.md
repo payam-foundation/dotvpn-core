@@ -71,6 +71,33 @@ docker compose -f deploy/docker/compose.yaml exec dotvpn-core dotvpn-core invite
 
 Hand the printed `dotvpn://` invite to a client (see [dotvpn-client](https://github.com/payam-foundation/dotvpn-client) or [dotvpn-android](https://github.com/payam-foundation/dotvpn-android)).
 
+## Egress exits
+
+By default a node dials destinations from its own IP. `node.egress` in the config picks the exit per destination and blocks others (see [ADR-021](docs/adr/021-egress-exits.md)):
+
+```yaml
+node:
+  egress:
+    ip_family: auto            # auto | v4 | v6
+    default: direct
+    exits:
+      warp: {type: warp}                    # free account; add license: for WARP+ or Zero Trust
+      tor:  {type: socks5, addr: 127.0.0.1:9050}
+      psi:  {type: http, addr: 127.0.0.1:8081}
+    block:
+      domains: ["*.gov.ir"]
+      cidrs: ["10.0.0.0/8"]
+      cidr_files: {IR: /etc/dotvpn/geo/ir.txt}
+    rules:
+      - {match: {domains: ["*.openai.com"]}, exit: warp, fallback: direct}
+      - {match: {cidrs: ["203.0.113.0/24"]}, exit: tor}
+    udp: direct                # direct | block | a warp exit
+```
+
+Rules run in order, the first match wins. A down exit fails the connection unless the rule says `fallback: direct`. `*.example.com` matches subdomains, not the apex. Tor and Psiphon are sidecars you run; the node only dials them and watches their port. The WARP exit registers a free Cloudflare account on first start (accepting [Cloudflare's terms](https://www.cloudflare.com/application/terms/)) and stores it in `data_dir`.
+
+`install.sh --egress-geo IR` downloads the Iran CIDR lists to `/etc/dotvpn/geo/` and blocks them. Metrics: `dotvpn_node_egress_exit_up{exit}` and `dotvpn_node_egress_dials_total{exit,result}`.
+
 ## Commands
 
 | Command | Purpose |

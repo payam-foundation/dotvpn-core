@@ -137,6 +137,17 @@ func (n *Node) serveAdmin(ctx context.Context) error {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ready") })
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "# TYPE dotvpn_node_active_streams gauge\ndotvpn_node_active_streams %d\n", n.o.Backend.Active())
+		fmt.Fprint(w, "# TYPE dotvpn_node_egress_exit_up gauge\n# TYPE dotvpn_node_egress_dials_total counter\n")
+		for _, s := range n.o.Backend.EgressStatus() {
+			up := 0
+			if s.Up {
+				up = 1
+			}
+			fmt.Fprintf(w, "dotvpn_node_egress_exit_up{exit=%q} %d\n", s.Name, up)
+			for res, v := range map[string]int64{"ok": s.OK, "failed": s.Failed, "denied": s.Denied} {
+				fmt.Fprintf(w, "dotvpn_node_egress_dials_total{exit=%q,result=%q} %d\n", s.Name, res, v)
+			}
+		}
 	})
 	ln, err := loopback.Listen(n.o.AdminListen)
 	if err != nil {
