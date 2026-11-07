@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -154,4 +155,48 @@ func TestDialUDPConcurrencyAndFlowCap(t *testing.T) {
 
 func TestBackendIsUDPBackend(t *testing.T) {
 	var _ transport.UDPBackend = (*Backend)(nil)
+}
+
+// A denied user's streams already in flight must end, not only new ones.
+func TestSetDeniedClosesLiveStreams(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _, _ = c.Write([]byte("x")); time.Sleep(time.Minute); _ = c.Close() }()
+		}
+	}()
+	b := NewBackend(auth.NewVerifier(), Policy{AllowPrivate: true})
+	u, other := transport.User{ID: "u"}, transport.User{ID: "other"}
+	c, err := b.Dial(context.Background(), u, ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := b.Dial(context.Background(), other, ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer o.Close()
+	buf := make([]byte, 1)
+	if _, err := c.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	b.SetDenied([]string{"u"})
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := c.Read(buf); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("denied user's stream still open: %v", err)
+	}
+	if _, err := o.Write([]byte("y")); err != nil {
+		t.Fatalf("other user's stream was closed: %v", err)
+	}
+	if b.Active() != 1 {
+		t.Fatalf("active = %d, want 1", b.Active())
+	}
 }

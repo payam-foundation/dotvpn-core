@@ -279,6 +279,7 @@ func runNode(ctx context.Context, c *config.Config, mounts map[string]http.Handl
 		Name:        c.Node.Name,
 		Listen:      c.Node.Listen,
 		Domain:      c.Node.Domain,
+		AltDomains:  c.Node.AltDomains,
 		Email:       c.Node.ACMEEmail,
 		DataDir:     c.DataDir,
 		Decoy:       c.Node.Decoy,
