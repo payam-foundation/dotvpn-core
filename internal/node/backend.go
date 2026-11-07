@@ -63,6 +63,7 @@ type userState struct {
 	down    atomic.Int64
 	limiter *rate.Limiter // nil when unlimited
 	mbps    int
+	open    sync.Map // *meteredConn: live egress conns, closed when the user is denied
 }
 
 // Backend implements transport.Backend.
@@ -99,7 +100,23 @@ func (b *Backend) SetDenied(ids []string) {
 	}
 	b.mu.Lock()
 	b.denied = m
+	var live []*meteredConn
+	for id := range m {
+		if s, ok := b.users[id]; ok {
+			s.open.Range(func(k, _ any) bool { live = append(live, k.(*meteredConn)); return true })
+		}
+	}
 	b.mu.Unlock()
+	for _, c := range live {
+		_ = c.Close() // ends the splice, so a download in flight stops too
+	}
+}
+
+func (b *Backend) isDenied(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, bad := b.denied[id]
+	return bad
 }
 
 // Authenticate verifies a data-plane token offline and refuses denied users.
@@ -112,10 +129,7 @@ func (b *Backend) Authenticate(token string) (transport.User, error) {
 	if err != nil {
 		return transport.User{}, transport.ErrUnauthorized
 	}
-	b.mu.Lock()
-	_, bad := b.denied[c.Sub]
-	b.mu.Unlock()
-	if bad {
+	if b.isDenied(c.Sub) {
 		return transport.User{}, transport.ErrUnauthorized
 	}
 	return transport.User{ID: c.Sub, Conc: c.Conc, Mbps: c.Mbps}, nil
@@ -176,7 +190,18 @@ func (b *Backend) Dial(ctx context.Context, u transport.User, authority string) 
 		}
 		return nil, transport.ErrBadGateway
 	}
-	return &meteredConn{Conn: c, st: st}, nil
+	m := &meteredConn{Conn: c, st: st}
+	return b.track(m, u), nil
+}
+
+// track registers m so SetDenied can close it. A user denied between
+// Authenticate and the dial is closed here instead of slipping through.
+func (b *Backend) track(m *meteredConn, u transport.User) net.Conn {
+	m.st.open.Store(m, struct{}{})
+	if b.isDenied(u.ID) {
+		_ = m.Close()
+	}
+	return m
 }
 
 // DialUDP opens a UDP egress flow for u (transport.UDPBackend). It applies the
@@ -221,6 +246,7 @@ func (b *Backend) DialUDP(ctx context.Context, u transport.User, authority strin
 	m := &meteredConn{Conn: c, st: st, release: release}
 	ic := &idleConn{meteredConn: m}
 	ic.last.Store(time.Now().UnixNano())
+	b.track(m, u)
 	return ic, nil
 }
 
@@ -349,6 +375,7 @@ func (m *meteredConn) CloseWrite() error {
 }
 
 func (m *meteredConn) Close() error {
+	m.st.open.Delete(m)
 	err := m.Conn.Close()
 	m.once.Do(func() {
 		if m.release != nil {
