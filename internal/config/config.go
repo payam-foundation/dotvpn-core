@@ -30,8 +30,11 @@ type NodeConfig struct {
 	Listen string `yaml:"listen"`
 	// Domain enables ACME certificates and is the SNI the node answers to.
 	// Empty means a self-signed certificate that clients pin.
-	Domain    string `yaml:"domain"`
-	ACMEEmail string `yaml:"acme_email"`
+	Domain string `yaml:"domain"`
+	// AltDomains are extra names for this node that get ACME certificates too.
+	// Each must resolve to this host (HTTP-01/TLS-ALPN-01 validation).
+	AltDomains []string `yaml:"alt_domains"`
+	ACMEEmail  string   `yaml:"acme_email"`
 	// Decoy is what non-proxy visitors see: empty for the built-in page,
 	// "dir:/path" for static files, or an https:// URL to reverse proxy.
 	Decoy string `yaml:"decoy"`
