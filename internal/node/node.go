@@ -18,13 +18,16 @@ import (
 // Options configures a Node. Mounts and Extra let other modules plug into the
 // single TLS port without the node knowing about them.
 type Options struct {
-	Name    string
-	Listen  string
-	Domain  string
-	Email   string
-	DataDir string
-	Decoy   string
-	Backend *Backend
+	Name   string
+	Listen string
+	Domain string
+	// AltDomains get their own certificates too: other names that resolve to
+	// this node (a second DNS zone, an in-country name).
+	AltDomains []string
+	Email      string
+	DataDir    string
+	Decoy      string
+	Backend    *Backend
 	// TLS overrides certificate handling (tests). When nil, ACME or a
 	// self-signed certificate is used.
 	TLS *tls.Config
@@ -90,7 +93,7 @@ func (n *Node) Serve(ctx context.Context) error {
 	cs := &certSource{cfg: n.o.TLS}
 	if cs.cfg == nil {
 		var err error
-		if cs, err = newCerts(ctx, n.o.Domain, n.o.Email, n.o.DataDir); err != nil {
+		if cs, err = newCerts(ctx, n.o.Domain, n.o.Email, n.o.DataDir, n.o.AltDomains...); err != nil {
 			return fmt.Errorf("node: certificates: %w", err)
 		}
 	}
