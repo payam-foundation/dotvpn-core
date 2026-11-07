@@ -28,15 +28,17 @@ type certSource struct {
 	pin string // only for self-signed
 }
 
-// newCerts returns ACME-managed certificates when domain is set, otherwise a
-// persisted self-signed certificate whose SPKI pin goes into client configs.
-func newCerts(ctx context.Context, domain, email, dataDir string) (*certSource, error) {
+// newCerts returns ACME-managed certificates for domain and any alt names when
+// domain is set, otherwise a persisted self-signed certificate whose SPKI pin
+// goes into client configs.
+func newCerts(ctx context.Context, domain, email, dataDir string, alt ...string) (*certSource, error) {
 	if domain != "" {
 		certmagic.DefaultACME.Agreed = true
 		certmagic.DefaultACME.Email = email
 		magic := certmagic.NewDefault()
+		answerUnknownSNI(magic, domain)
 		magic.Storage = &certmagic.FileStorage{Path: filepath.Join(dataDir, "acme")}
-		if err := magic.ManageSync(ctx, []string{domain}); err != nil {
+		if err := magic.ManageSync(ctx, append([]string{domain}, alt...)); err != nil {
 			return nil, err
 		}
 		return &certSource{cfg: magic.TLSConfig()}, nil
@@ -63,6 +65,15 @@ func TLSConfig(ctx context.Context, domain, email, dataDir string) (*tls.Config,
 		return nil, err
 	}
 	return cs.cfg, nil
+}
+
+// answerUnknownSNI makes the node present domain's certificate when the
+// ClientHello carries no SNI or one no certificate covers (a CDN forwarding the
+// visitor's hostname, a scan by IP). Without it CertMagic aborts the handshake
+// with a TLS alert, which is a probe tell and breaks Cloudflare "Full" mode
+// (ADR-020).
+func answerUnknownSNI(magic *certmagic.Config, domain string) {
+	magic.DefaultServerName, magic.FallbackServerName = domain, domain
 }
 
 // SelfSignedPin returns the pin of the node's self-signed certificate in
